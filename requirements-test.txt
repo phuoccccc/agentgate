@@ -1,0 +1,3 @@
+# Direct Mode testing only. No Studio, simulator, or Docker dependencies.
+# Pinned to the official commit that supports the current GenVM v0.3 runner bundle.
+genlayer-test @ git+https://github.com/genlayerlabs/genlayer-testing-suite.git@343e3a358f9e235a93b49c60721ce7676585ff07
