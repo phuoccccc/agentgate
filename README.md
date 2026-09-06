@@ -119,7 +119,7 @@ flowchart TD
 
 - **Network:** GenLayer Studionet
 - **Chain ID:** `61999`
-- **Contract address:** Not included in tracked/public configuration. Insert the deployed public AgentGate address here before publishing the final submission.
+- **Contract address:** `0x79050B7962C27960e5d7F90700467e56dD220f9b`
 
 ## Intelligent Contract
 
