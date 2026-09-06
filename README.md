@@ -4,6 +4,38 @@ A GenLayer-powered trust layer for autonomous AI agents.
 
 Before an autonomous agent performs a high-impact action, AgentGate asks GenLayer validators to evaluate the proposed action using its context and a human-defined policy. It returns an `ALLOW` or `BLOCK` decision, a `LOW`, `MEDIUM`, or `HIGH` risk level, and a short human-readable reason.
 
+**Input:** `action`, `context`, `policy`
+
+**Output:** `ALLOW` / `BLOCK`, `risk`, `reason`
+
+## Demo
+
+These screenshots show the two confirmed outcomes from the deployed GenLayer Studionet workflow.
+
+| `ALLOW` / `LOW` | `BLOCK` / `HIGH` |
+| --- | --- |
+| ![AgentGate ALLOW result](docs/allow-demo.png) | ![AgentGate BLOCK result](docs/block-demo.png) |
+
+### Example 1: Routine Payment
+
+**Action:** Send $5 to a known wallet.
+
+**Context:** Recipient has received payments from this wallet multiple times.
+
+**Policy:** Normal small payments to known recipients are allowed.
+
+**Result:** `ALLOW` / `LOW`
+
+### Example 2: High-Risk Transfer
+
+**Action:** Send $10,000 to a new wallet.
+
+**Context:** The wallet has never interacted with this recipient.
+
+**Policy:** Large transfers to unknown recipients should be blocked.
+
+**Result:** `BLOCK` / `HIGH`
+
 ## Problem
 
 Traditional rule engines work well when every condition is deterministic. Autonomous agents increasingly operate in situations shaped by ambiguity, intent, contextual risk, and incomplete information. These situations cannot always be handled safely by adding another hard-coded `if/else` branch.
@@ -83,6 +115,12 @@ flowchart TD
 | Network | GenLayer Studionet |
 | Chain ID | `61999` |
 
+## Deployment
+
+- **Network:** GenLayer Studionet
+- **Chain ID:** `61999`
+- **Contract address:** Not included in tracked/public configuration. Insert the deployed public AgentGate address here before publishing the final submission.
+
 ## Intelligent Contract
 
 The contract is implemented in [`contracts/agent_gate.py`](contracts/agent_gate.py).
@@ -92,33 +130,13 @@ The contract is implemented in [`contracts/agent_gate.py`](contracts/agent_gate.
 
 The contract does not use hard-coded business rules to choose `ALLOW`, `BLOCK`, or a risk level. It uses `gl.nondet.exec_prompt` for contextual AI evaluation and `gl.vm.run_nondet_unsafe` for validator-based nondeterministic execution. It also validates the exact result fields, permitted values, and reason length before storing an evaluation.
 
-## Demo
-
-The following outcomes were confirmed through the deployed GenLayer Studionet workflow.
-
-### Example 1: Routine Payment
-
-**Action:** Send $5 to a known wallet.
-
-**Context:** Recipient has received payments from this wallet multiple times.
-
-**Policy:** Normal small payments to known recipients are allowed.
-
-**Result:** `ALLOW` / `LOW`
-
-### Example 2: High-Risk Transfer
-
-**Action:** Send $10,000 to a new wallet.
-
-**Context:** The wallet has never interacted with this recipient.
-
-**Policy:** Large transfers to unknown recipients should be blocked.
-
-**Result:** `BLOCK` / `HIGH`
-
 ## Testing
 
 The Direct Mode test suite is located in [`tests/direct/`](tests/direct/). It covers representative action-policy scenarios, malformed AI responses, and validator agreement and disagreement.
+
+```bash
+pytest tests/direct/ -v
+```
 
 ```text
 10 passed
@@ -159,6 +177,9 @@ AgentGate/
 |   |   `-- genlayer.js
 |   |-- .env.example
 |   `-- package.json
+|-- docs/
+|   |-- allow-demo.png
+|   `-- block-demo.png
 `-- README.md
 ```
 
