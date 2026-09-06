@@ -1,6 +1,6 @@
-# { "Depends": "py-genlayer:1zr6nqk597d97kg0dyxg0shhrykx5v02zjgnyrajapy4wlqvfvwh" }
+# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 
-import genlayer as gl
+from genlayer import *
 
 
 def _is_valid_evaluation(value: object) -> bool:
@@ -23,7 +23,7 @@ def _is_valid_evaluation(value: object) -> bool:
     )
 
 
-class AgentGate(gl.contract.Contract):
+class AgentGate(gl.Contract):
     """A small trust gate that asks GenLayer validators for AI judgment."""
 
     # The latest accepted evaluation is stored on-chain so a frontend can read it.
@@ -106,7 +106,7 @@ for keywords or apply a mechanical if/else rule.
 
         # GenLayer accepts the leader's structured result only when enough
         # validators agree with the independent judgment above.
-        result = gl.vm.run_nondet(make_evaluation, validate_evaluation)
+        result = gl.vm.run_nondet_unsafe(make_evaluation, validate_evaluation)
 
         self.decision = result["decision"]
         self.risk = result["risk"]
