@@ -1,0 +1,41 @@
+name: Direct Mode Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  direct-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GENVM_VERSION: v0.6.0-rc3
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - name: Restore GenLayer Direct Mode cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/gltest-direct
+          key: ${{ runner.os }}-python-3.13-gltest-direct-${{ hashFiles('requirements-test.txt', 'contracts/agent_gate.py') }}
+          restore-keys: |
+            ${{ runner.os }}-python-3.13-gltest-direct-
+
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-test.txt
+
+      - name: Run Direct Mode tests
+        run: python -m pytest tests/direct/ -v
