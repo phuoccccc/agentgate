@@ -190,36 +190,7 @@ export async function evaluateWithGenLayer({ action, context, policy }) {
     TransactionStatus.FINALIZED,
   ].includes(consensusStatus);
 
-  console.log("AgentGate normalized execution:", {
-    consensusStatus,
-    rawExecutionResult,
-    canonicalExecutionResult,
-    success,
-  });
-
   if (!acceptedOrFinalized || !success) {
-    console.error("AgentGate failed transaction hash:", transactionHash);
-    console.error("AgentGate failed receipt:", receipt);
-    console.error("AgentGate failed execution fields:", {
-      status: receipt.status,
-      status_name: consensusStatus,
-      consensus_data: receipt.consensus_data,
-      leader_receipt: leaderReceipts,
-      execution_result: rawExecutionResult,
-      txExecutionResultName: canonicalExecutionResult,
-      result: receipt.result,
-      error: receipt.error,
-      message: receipt.message,
-      data: receipt.data,
-    });
-
-    try {
-      const transaction = await readClient.getTransaction({ hash: transactionHash });
-      console.error("AgentGate failed transaction data:", transaction);
-    } catch (lookupError) {
-      console.error("AgentGate failed transaction lookup:", lookupError);
-    }
-
     const displayedStatus = consensusStatus ?? `status code ${receipt.status ?? "missing"}`;
     const displayedExecution = normalizedExecutionResult
       ?? rawExecutionResult

@@ -128,14 +128,9 @@ export default function App() {
       setTransactionHash(evaluation.transactionHash);
       setStatus("success");
     } catch (error) {
-      console.error("AgentGate GenLayer transaction failed", {
-        error,
-        message: error?.message,
-        cause: error?.cause,
-        code: error?.code,
-        data: error?.data,
-      });
-      setResult(getErrorMessage(error));
+      const errorMessage = getErrorMessage(error);
+      console.error("AgentGate transaction failed:", errorMessage);
+      setResult(errorMessage);
       setStatus("error");
     } finally {
       evaluationPending.current = false;
