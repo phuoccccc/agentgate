@@ -132,16 +132,13 @@ The contract does not use hard-coded business rules to choose `ALLOW`, `BLOCK`, 
 
 ## Testing
 
-The Direct Mode test suite is located in [`tests/direct/`](tests/direct/). It covers representative action-policy scenarios, malformed AI responses, and validator agreement and disagreement.
+The Direct Mode suite in [`tests/direct/`](tests/direct/) contains 10 scenarios covering representative action-policy cases, malformed AI responses, and validator agreement and disagreement.
 
 ```bash
 pytest tests/direct/ -v
 ```
 
-```text
-10 passed
-0 failed
-```
+An earlier development run recorded **10 passed, 0 failed**. Current re-verification with the updated Direct Mode toolchain encounters a loader failure before AgentGate contract logic executes; the same failure is reproducible in clean Linux GitHub Actions. This tooling limitation is tracked separately from the deployed contract, which is independently verified end-to-end on Studionet with real `ALLOW` / `LOW` and `BLOCK` / `HIGH` transactions.
 
 ## Run Locally
 
@@ -190,7 +187,10 @@ AgentGate/
 Confirmed:
 
 - Intelligent Contract deployed to GenLayer Studionet
-- Direct Mode tests passing
+- Direct Mode suite: 10 scenarios
+- Historical Direct Mode run: 10 passed, 0 failed
+- Current Direct Mode re-verification blocked by a pre-contract loader/toolchain issue
+- Studionet end-to-end verification: PASS
 - MetaMask and GenLayer Wallet Plugin integration
 - Real Studionet transaction submission
 - Validator evaluation

@@ -1,8 +1,6 @@
-name: Direct Mode Tests
+name: Direct Mode Diagnostic
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
