@@ -46,7 +46,7 @@ function Field({ label, name, value, onChange }) {
   );
 }
 
-function ResultCard({ result, status }) {
+function ResultCard({ processingStatus, result, status, transactionHash }) {
   if (status === "idle") {
     return (
       <div className="result-empty">
@@ -58,11 +58,22 @@ function ResultCard({ result, status }) {
   }
 
   if (status === "loading") {
+    const submitted = Boolean(transactionHash);
     return (
       <div className="result-empty" role="status">
         <span className="spinner" />
-        <h2>Evaluating action</h2>
-        <p>GenLayer validators are evaluating this action...</p>
+        <h2>{submitted ? "GenLayer is processing the transaction..." : "Preparing transaction"}</h2>
+        <p>{submitted ? `Current status: ${processingStatus}` : "Connecting wallet and preparing the request..."}</p>
+      </div>
+    );
+  }
+
+  if (status === "processing") {
+    return (
+      <div className="result-empty" role="status">
+        <span className="spinner" />
+        <h2>Transaction is still processing on GenLayer.</h2>
+        <p>Current status: {processingStatus}</p>
       </div>
     );
   }
@@ -107,6 +118,7 @@ export default function App() {
   const [status, setStatus] = useState("idle");
   const [result, setResult] = useState(null);
   const [transactionHash, setTransactionHash] = useState("");
+  const [processingStatus, setProcessingStatus] = useState("Connecting wallet");
   const evaluationPending = useRef(false);
 
   const handleChange = (event) => {
@@ -115,15 +127,26 @@ export default function App() {
 
   const evaluate = async (event) => {
     event.preventDefault();
-    if (evaluationPending.current) return;
+    if (evaluationPending.current || status === "processing") return;
 
     evaluationPending.current = true;
     setStatus("loading");
     setResult(null);
     setTransactionHash("");
+    setProcessingStatus("Connecting wallet");
 
     try {
-      const evaluation = await evaluateWithGenLayer(inputs);
+      const evaluation = await evaluateWithGenLayer(inputs, {
+        onSubmitted: setTransactionHash,
+        onStatus: setProcessingStatus,
+      });
+
+      if (evaluation.stillProcessing) {
+        setProcessingStatus(evaluation.consensusStatus);
+        setStatus("processing");
+        return;
+      }
+
       setResult(evaluation.result);
       setTransactionHash(evaluation.transactionHash);
       setStatus("success");
@@ -170,8 +193,8 @@ export default function App() {
             <Field label="Context" name="context" value={inputs.context} onChange={handleChange} />
             <Field label="Policy" name="policy" value={inputs.policy} onChange={handleChange} />
 
-            <button className="evaluate-button" disabled={status === "loading"} type="submit">
-              <span>{status === "loading" ? "Evaluating…" : "Evaluate Action"}</span>
+            <button className="evaluate-button" disabled={["loading", "processing"].includes(status)} type="submit">
+              <span>{["loading", "processing"].includes(status) ? "Processing…" : "Evaluate Action"}</span>
               <span aria-hidden="true">→</span>
             </button>
             <p className="network-notice">Browser wallet · GenLayer Studionet · Chain 61999</p>
@@ -185,7 +208,12 @@ export default function App() {
               </div>
               <span className="network-label">LIVE NETWORK</span>
             </div>
-            <ResultCard result={result} status={status} />
+            <ResultCard
+              processingStatus={processingStatus}
+              result={result}
+              status={status}
+              transactionHash={transactionHash}
+            />
             {transactionHash && <p className="transaction-id">Transaction: {transactionHash}</p>}
           </section>
         </section>

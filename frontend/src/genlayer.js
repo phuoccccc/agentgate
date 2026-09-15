@@ -1,16 +1,117 @@
 import { createClient } from "genlayer-js";
 import { studionet } from "genlayer-js/chains";
-import { ExecutionResult, TransactionHashVariant, TransactionStatus } from "genlayer-js/types";
+import {
+  ExecutionResult,
+  TransactionHashVariant,
+  TransactionStatus,
+  transactionsStatusNumberToName,
+} from "genlayer-js/types";
 
 const contractAddress = import.meta.env.VITE_AGENTGATE_CONTRACT_ADDRESS;
 const GENLAYER_SNAP_ID = "npm:genlayer-wallet-plugin";
 const METAMASK_RDNS = new Set(["io.metamask", "io.metamask.flask"]);
+const DECISION_POLL_INTERVAL_MS = 3000;
+const DECISION_POLL_RETRIES = 180;
+const STATUS_MONITOR_INTERVAL_MS = 15000;
+const TERMINAL_STATUSES = new Set([
+  TransactionStatus.ACCEPTED,
+  TransactionStatus.FINALIZED,
+  TransactionStatus.CANCELED,
+  TransactionStatus.UNDETERMINED,
+  TransactionStatus.VALIDATORS_TIMEOUT,
+  TransactionStatus.LEADER_TIMEOUT,
+]);
 
 if (!/^0x[a-fA-F0-9]{40}$/.test(contractAddress ?? "")) {
   throw new Error("VITE_AGENTGATE_CONTRACT_ADDRESS is missing or invalid.");
 }
 
 const readClient = createClient({ chain: studionet });
+
+function getConsensusStatus(transaction) {
+  const status = transaction?.status;
+  return transaction?.statusName
+    ?? transaction?.status_name
+    ?? transactionsStatusNumberToName[String(status)]
+    ?? (typeof status === "string" ? status : null);
+}
+
+function formatStatus(status) {
+  if (!status) return "Submitted";
+  return String(status)
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function startStatusMonitor(transactionHash, onStatus) {
+  let stopped = false;
+  let timeoutId;
+
+  const poll = async () => {
+    try {
+      const transaction = await readClient.getTransaction({ hash: transactionHash });
+      if (!stopped) onStatus?.(formatStatus(getConsensusStatus(transaction)));
+    } catch {
+      // The receipt waiter remains authoritative; status monitoring is best-effort UI only.
+    }
+
+    if (!stopped) {
+      timeoutId = window.setTimeout(poll, STATUS_MONITOR_INTERVAL_MS);
+    }
+  };
+
+  void poll();
+  return () => {
+    stopped = true;
+    window.clearTimeout(timeoutId);
+  };
+}
+
+function isDecisionWaitTimeout(error) {
+  return /Timed out waiting for transaction .* to reach status "ACCEPTED"/i.test(
+    error?.message ?? "",
+  );
+}
+
+async function waitForDecision(transactionHash, onStatus) {
+  const stopStatusMonitor = startStatusMonitor(transactionHash, onStatus);
+
+  try {
+    const receipt = await readClient.waitForTransactionReceipt({
+      hash: transactionHash,
+      status: TransactionStatus.ACCEPTED,
+      interval: DECISION_POLL_INTERVAL_MS,
+      retries: DECISION_POLL_RETRIES,
+      fullTransaction: true,
+    });
+    return { receipt, stillProcessing: false };
+  } catch (error) {
+    if (!isDecisionWaitTimeout(error)) throw error;
+
+    let transaction = null;
+    try {
+      transaction = await readClient.getTransaction({ hash: transactionHash });
+    } catch {
+      // The waiter already confirmed the transaction and reported its current status.
+    }
+
+    const statusFromError = error.message.match(/current status:\s*([^\)]+)/i)?.[1];
+    const consensusStatus = getConsensusStatus(transaction)
+      ?? transactionsStatusNumberToName[String(statusFromError)]
+      ?? statusFromError;
+
+    if (transaction && TERMINAL_STATUSES.has(consensusStatus)) {
+      return { receipt: transaction, stillProcessing: false };
+    }
+
+    onStatus?.(formatStatus(consensusStatus));
+    return { consensusStatus, stillProcessing: true };
+  } finally {
+    stopStatusMonitor();
+  }
+}
 
 function getLegacyMetaMaskProvider() {
   const injected = window.ethereum;
@@ -135,7 +236,10 @@ async function connectMetaMaskAccount(provider) {
   return accounts[0];
 }
 
-export async function evaluateWithGenLayer({ action, context, policy }) {
+export async function evaluateWithGenLayer(
+  { action, context, policy },
+  { onSubmitted, onStatus } = {},
+) {
   const provider = await discoverMetaMaskProvider();
   if (!provider) {
     throw new Error("MetaMask was not found. Install or enable the MetaMask browser extension, then reload AgentGate.");
@@ -160,12 +264,18 @@ export async function evaluateWithGenLayer({ action, context, policy }) {
     args: [action, context, policy],
     value: 0n,
   });
+  onSubmitted?.(transactionHash);
+  onStatus?.("Submitted");
 
-  const receipt = await readClient.waitForTransactionReceipt({
-    hash: transactionHash,
-    status: TransactionStatus.ACCEPTED,
-    fullTransaction: true,
-  });
+  const decision = await waitForDecision(transactionHash, onStatus);
+  if (decision.stillProcessing) {
+    return {
+      consensusStatus: formatStatus(decision.consensusStatus),
+      stillProcessing: true,
+      transactionHash,
+    };
+  }
+  const { receipt } = decision;
 
   const statusCode = Number(receipt.status);
   const consensusStatus = receipt.statusName
