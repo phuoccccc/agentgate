@@ -52,7 +52,7 @@ function ResultCard({ processingStatus, result, status, transactionHash }) {
       <div className="result-empty">
         <span className="result-icon">◇</span>
         <h2>Awaiting evaluation</h2>
-        <p>Your finalized GenLayer result will appear here.</p>
+        <p>Your GenLayer result will appear here.</p>
       </div>
     );
   }
@@ -108,7 +108,7 @@ function ResultCard({ processingStatus, result, status, transactionHash }) {
           <p>{result.reason}</p>
         </div>
       </div>
-      <p className="result-source">GenLayer result · Studionet</p>
+      <p className="result-source">GenLayer result · Studio Next</p>
     </div>
   );
 }
@@ -167,7 +167,7 @@ export default function App() {
           <span className="brand-mark">AG</span>
           <span>AgentGate</span>
         </a>
-        <span className="status-pill connected"><i /> Studionet</span>
+        <span className="status-pill connected"><i /> Studio Next</span>
       </header>
 
       <div className="page" id="top">
@@ -197,7 +197,7 @@ export default function App() {
               <span>{["loading", "processing"].includes(status) ? "Processing…" : "Evaluate Action"}</span>
               <span aria-hidden="true">→</span>
             </button>
-            <p className="network-notice">Browser wallet · GenLayer Studionet · Chain 61999</p>
+            <p className="network-notice">Browser wallet · GenLayer Studio Next · Chain 61997</p>
           </form>
 
           <section className="panel result-panel">

@@ -1,40 +1,16 @@
 import { createClient } from "genlayer-js";
-import { studionet } from "genlayer-js/chains";
-import {
-  ExecutionResult,
-  TransactionHashVariant,
-  TransactionStatus,
-  transactionsStatusNumberToName,
-} from "genlayer-js/types";
+import { studioDevnet } from "genlayer-js/chains";
+import { createTransactionKit } from "@genlayer/transaction-kit";
 
 const contractAddress = import.meta.env.VITE_AGENTGATE_CONTRACT_ADDRESS;
 const GENLAYER_SNAP_ID = "npm:genlayer-wallet-plugin";
 const METAMASK_RDNS = new Set(["io.metamask", "io.metamask.flask"]);
-const DECISION_POLL_INTERVAL_MS = 3000;
-const DECISION_POLL_RETRIES = 180;
-const STATUS_MONITOR_INTERVAL_MS = 15000;
-const TERMINAL_STATUSES = new Set([
-  TransactionStatus.ACCEPTED,
-  TransactionStatus.FINALIZED,
-  TransactionStatus.CANCELED,
-  TransactionStatus.UNDETERMINED,
-  TransactionStatus.VALIDATORS_TIMEOUT,
-  TransactionStatus.LEADER_TIMEOUT,
-]);
 
 if (!/^0x[a-fA-F0-9]{40}$/.test(contractAddress ?? "")) {
   throw new Error("VITE_AGENTGATE_CONTRACT_ADDRESS is missing or invalid.");
 }
 
-const readClient = createClient({ chain: studionet });
-
-function getConsensusStatus(transaction) {
-  const status = transaction?.status;
-  return transaction?.statusName
-    ?? transaction?.status_name
-    ?? transactionsStatusNumberToName[String(status)]
-    ?? (typeof status === "string" ? status : null);
-}
+const readClient = createClient({ chain: studioDevnet });
 
 function formatStatus(status) {
   if (!status) return "Submitted";
@@ -45,71 +21,29 @@ function formatStatus(status) {
     .join(" ");
 }
 
-function startStatusMonitor(transactionHash, onStatus) {
-  let stopped = false;
-  let timeoutId;
-
-  const poll = async () => {
-    try {
-      const transaction = await readClient.getTransaction({ hash: transactionHash });
-      if (!stopped) onStatus?.(formatStatus(getConsensusStatus(transaction)));
-    } catch {
-      // The receipt waiter remains authoritative; status monitoring is best-effort UI only.
-    }
-
-    if (!stopped) {
-      timeoutId = window.setTimeout(poll, STATUS_MONITOR_INTERVAL_MS);
-    }
-  };
-
-  void poll();
-  return () => {
-    stopped = true;
-    window.clearTimeout(timeoutId);
-  };
-}
-
-function isDecisionWaitTimeout(error) {
-  return /Timed out waiting for transaction .* to reach status "ACCEPTED"/i.test(
-    error?.message ?? "",
-  );
-}
-
-async function waitForDecision(transactionHash, onStatus) {
-  const stopStatusMonitor = startStatusMonitor(transactionHash, onStatus);
-
+async function trackDecision(transactionKit, transactionHash, onStatus) {
+  let latestStatus = { phase: "submitted", genlayerTxId: transactionHash };
   try {
-    const receipt = await readClient.waitForTransactionReceipt({
-      hash: transactionHash,
-      status: TransactionStatus.ACCEPTED,
-      interval: DECISION_POLL_INTERVAL_MS,
-      retries: DECISION_POLL_RETRIES,
-      fullTransaction: true,
-    });
-    return { receipt, stillProcessing: false };
+    const status = await transactionKit.track(
+      transactionHash,
+      (nextStatus) => {
+        latestStatus = nextStatus;
+        const queueSuffix = Number.isFinite(nextStatus.queuePosition)
+          ? ` (${nextStatus.queuePosition} ahead)`
+          : "";
+        onStatus?.(`${formatStatus(nextStatus.statusName ?? nextStatus.phase)}${queueSuffix}`);
+      },
+      { until: "decided" },
+    );
+    return { status, stillProcessing: false };
   } catch (error) {
-    if (!isDecisionWaitTimeout(error)) throw error;
-
-    let transaction = null;
-    try {
-      transaction = await readClient.getTransaction({ hash: transactionHash });
-    } catch {
-      // The waiter already confirmed the transaction and reported its current status.
+    if (
+      /Timed out tracking GenLayer transaction/i.test(error?.message ?? "")
+      && ["submitted", "pending", "processing"].includes(latestStatus.phase)
+    ) {
+      return { status: latestStatus, stillProcessing: true };
     }
-
-    const statusFromError = error.message.match(/current status:\s*([^\)]+)/i)?.[1];
-    const consensusStatus = getConsensusStatus(transaction)
-      ?? transactionsStatusNumberToName[String(statusFromError)]
-      ?? statusFromError;
-
-    if (transaction && TERMINAL_STATUSES.has(consensusStatus)) {
-      return { receipt: transaction, stillProcessing: false };
-    }
-
-    onStatus?.(formatStatus(consensusStatus));
-    return { consensusStatus, stillProcessing: true };
-  } finally {
-    stopStatusMonitor();
+    throw error;
   }
 }
 
@@ -166,8 +100,8 @@ async function requestSnapMethod(provider, request) {
   }
 }
 
-async function connectMetaMaskToStudionet(provider) {
-  const chainId = `0x${studionet.id.toString(16)}`;
+async function connectMetaMaskToStudioNext(provider) {
+  const chainId = `0x${studioDevnet.id.toString(16)}`;
   const currentChainId = await provider.request({ method: "eth_chainId" });
 
   if (currentChainId.toLowerCase() !== chainId) {
@@ -183,10 +117,9 @@ async function connectMetaMaskToStudionet(provider) {
         method: "wallet_addEthereumChain",
         params: [{
           chainId,
-          chainName: studionet.name,
-          rpcUrls: studionet.rpcUrls.default.http,
-          nativeCurrency: studionet.nativeCurrency,
-          blockExplorerUrls: [studionet.blockExplorers.default.url],
+          chainName: studioDevnet.name,
+          rpcUrls: studioDevnet.rpcUrls.default.http,
+          nativeCurrency: studioDevnet.nativeCurrency,
         }],
       });
       await provider.request({
@@ -246,76 +179,70 @@ export async function evaluateWithGenLayer(
   }
 
   let account = await connectMetaMaskAccount(provider);
-  // genlayer-js 1.1.8 connect() ignores its configured provider and uses window.ethereum.
-  await connectMetaMaskToStudionet(provider);
+  await connectMetaMaskToStudioNext(provider);
 
   const activeAccounts = await provider.request({ method: "eth_accounts" });
   account = activeAccounts?.[0] ?? account;
 
-  const writeClient = createClient({
-    chain: studionet,
+  const transactionKit = createTransactionKit({
+    chain: studioDevnet,
     account,
     provider,
   });
 
-  const transactionHash = await writeClient.writeContract({
+  const transaction = {
+    kind: "write",
     address: contractAddress,
-    functionName: "evaluate_action",
+    method: "evaluate_action",
     args: [action, context, policy],
-    value: 0n,
-  });
+  };
+
+  onStatus?.("Estimating fees");
+  const quote = await transactionKit.estimate({ preset: "standard" }, transaction);
+  if (quote.verification.status === "mismatch") {
+    throw new Error("GenLayer fee policy changed while preparing the transaction. Please try again.");
+  }
+
+  onStatus?.("Waiting for wallet signature");
+  const { genlayerTxId: transactionHash } = await transactionKit.submit(quote, transaction);
   onSubmitted?.(transactionHash);
   onStatus?.("Submitted");
 
-  const decision = await waitForDecision(transactionHash, onStatus);
-  if (decision.stillProcessing) {
+  const tracked = await trackDecision(transactionKit, transactionHash, onStatus);
+  if (tracked.stillProcessing) {
     return {
-      consensusStatus: formatStatus(decision.consensusStatus),
+      consensusStatus: formatStatus(tracked.status.statusName ?? tracked.status.phase),
       stillProcessing: true,
       transactionHash,
     };
   }
-  const { receipt } = decision;
 
-  const statusCode = Number(receipt.status);
-  const consensusStatus = receipt.statusName
-    ?? receipt.status_name
-    ?? (statusCode === 5 ? TransactionStatus.ACCEPTED : null)
-    ?? (statusCode === 7 ? TransactionStatus.FINALIZED : receipt.status);
-  const rawLeaderReceipts = receipt.consensus_data?.leader_receipt;
-  const leaderReceipts = Array.isArray(rawLeaderReceipts)
-    ? rawLeaderReceipts
-    : rawLeaderReceipts ? [rawLeaderReceipts] : [];
-  const selectedLeaderReceipt = [...leaderReceipts]
-    .reverse()
-    .find((leaderReceipt) => leaderReceipt?.execution_result);
-  const rawExecutionResult = selectedLeaderReceipt?.execution_result;
-  const canonicalExecutionResult = receipt.txExecutionResultName;
-  const normalizedExecutionResult = canonicalExecutionResult
-    ?? (rawExecutionResult === "SUCCESS" ? ExecutionResult.FINISHED_WITH_RETURN : null)
-    ?? (rawExecutionResult === "ERROR" ? ExecutionResult.FINISHED_WITH_ERROR : null);
-  const success = normalizedExecutionResult === ExecutionResult.FINISHED_WITH_RETURN;
-  const acceptedOrFinalized = [
-    TransactionStatus.ACCEPTED,
-    TransactionStatus.FINALIZED,
-  ].includes(consensusStatus);
-
-  if (!acceptedOrFinalized || !success) {
-    const displayedStatus = consensusStatus ?? `status code ${receipt.status ?? "missing"}`;
-    const displayedExecution = normalizedExecutionResult
-      ?? rawExecutionResult
-      ?? "missing execution result";
+  if (!tracked.status.successful) {
+    const displayedStatus = tracked.status.statusName ?? tracked.status.phase;
+    const displayedExecution = tracked.status.executionResultName ?? "execution failed";
     throw new Error(
       `GenLayer transaction ${transactionHash} failed: consensus ${displayedStatus}; execution ${displayedExecution}.`,
     );
   }
 
-  const result = await readClient.readContract({
-    address: contractAddress,
-    functionName: "get_last_evaluation",
-    args: [],
-    transactionHashVariant: TransactionHashVariant.LATEST_NONFINAL,
-  });
+  const [decision, risk, reason] = await Promise.all([
+    readClient.readContract({
+      address: contractAddress,
+      functionName: "get_decision",
+      args: [],
+    }),
+    readClient.readContract({
+      address: contractAddress,
+      functionName: "get_risk",
+      args: [],
+    }),
+    readClient.readContract({
+      address: contractAddress,
+      functionName: "get_reason",
+      args: [],
+    }),
+  ]);
+  const result = { decision, risk, reason };
 
   if (
     !result ||
